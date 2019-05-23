@@ -24,9 +24,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "GUI.h"
+#include "LCDConf.h"
 #include "custom_motion_sensors.h"
 #include "math.h"
 #include <stdio.h>
+#include "ts.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,6 +48,10 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
+CRC_HandleTypeDef hcrc;
+
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel1;
 
 QSPI_HandleTypeDef hqspi;
@@ -70,6 +77,9 @@ float magSensitivity;
 float xTemp, yTemp;
 float angleX, angleY, angleZ;
 
+int count = 0;
+
+extern const GUI_BITMAP bmlemmling_Cartoon_penguin_small;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,8 +91,10 @@ static void MX_SPI3_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_CRC_Init(void);
 /* USER CODE BEGIN PFP */
-
+void compass(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -97,7 +109,7 @@ static void MX_USB_OTG_FS_PCD_Init(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	GUI_HSPRITE hSprite;
   /* USER CODE END 1 */
   
 
@@ -126,7 +138,40 @@ int main(void)
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
   MX_MEMS_Init();
+  MX_ADC1_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
+  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
+
+  InitLCD_ILI9341();
+
+  GUI_Init();
+
+  GUI_SetFont(&GUI_Font8x16);
+  GUI_SetBkColor(GUI_BLUE);
+  GUI_Clear();
+
+  GUI_SetColor(GUI_CYAN);			//foreground or text color
+  GUI_DispString("ECET260 Test Program\tStemwin ver: ");
+
+  GUI_DispString(GUI_GetVersionString());
+  GUI_DispString("\n\n\n");
+
+  GUI_SetFont(&GUI_Font32B_ASCII);
+  GUI_SetColor(GUI_WHITE);		//foreground or text color
+
+  //calibrate screen
+#define TSLEFT 3520
+#define TSRIGHT 450
+#define TSTOP 3515
+#define TSBOTTOM 580
+
+
+  GUI_TOUCH_Calibrate(GUI_COORD_X, 0, 319, TSLEFT, TSRIGHT);
+  GUI_TOUCH_Calibrate(GUI_COORD_Y, 0, 239, TSTOP, TSBOTTOM);
+
+
+
   CUSTOM_MOTION_SENSOR_Init(CUSTOM_LIS3MDL_0, MOTION_MAGNETO);
 
   CUSTOM_MOTION_SENSOR_Init(CUSTOM_LSM6DSL_0, MOTION_GYRO | MOTION_ACCELERO);
@@ -138,6 +183,8 @@ int main(void)
   CUSTOM_MOTION_SENSOR_GetSensitivity(CUSTOM_LSM6DSL_0, MOTION_GYRO, &gyroSensitivity);			//LSM6DSL_GYRO_SENSITIVITY_FS_2000DPS
 
   printf("MS: %0.3f\tAS: %0.3f\tGS: %0.3f\n", magSensitivity, accelSensitivity, gyroSensitivity);
+
+  hSprite = GUI_SPRITE_Create(&bmlemmling_Cartoon_penguin_small, 20,20);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -148,8 +195,13 @@ int main(void)
 
   MX_MEMS_Process();
     /* USER CODE BEGIN 3 */
+
+	GUI_SPRITE_SetPosition(hSprite, 100, 100); //(int16_t)memsYAngle*-1+160-30, (int16_t)memsXAngle*-1+120-30);
+	GUI_Delay(20);
+
   CUSTOM_MOTION_SENSOR_GetAxes(CUSTOM_LIS3MDL_0, MOTION_MAGNETO, &mag);
 
+  compass();
 //  printf("MX: %ld\tMY: %ld\tMZ: %ld\n", mag.x, mag.y, mag.z);
 
   CUSTOM_MOTION_SENSOR_GetAxesRaw(CUSTOM_LSM6DSL_0, MOTION_ACCELERO, &accelerationRaw);
@@ -159,7 +211,7 @@ int main(void)
 
   CUSTOM_MOTION_SENSOR_GetAxes(CUSTOM_LSM6DSL_0, MOTION_ACCELERO, &acceleration);
 
-  printf("AX: %ld\tAY: %ld\tAZ: %ld\n", acceleration.x, acceleration.y, acceleration.z);
+///  printf("AX: %ld\tAY: %ld\tAZ: %ld\n", acceleration.x, acceleration.y, acceleration.z);
 
   xTemp = acceleration.x==0 ? 0 : (float)acceleration.x/1000;
   yTemp = acceleration.y==0 ? 0 : (float)acceleration.y/1000;
@@ -170,7 +222,7 @@ int main(void)
   xTemp = xTemp<-1 ? -1 : xTemp;
   yTemp = yTemp<-1 ? -1 : yTemp;
 
-  printf("AngleX: %0.2lf\tAngleY: %0.2lf\n", asinf(xTemp)*180/M_PI, asinf(yTemp)*180/M_PI);
+///  printf("AngleX: %0.2lf\tAngleY: %0.2lf\n", asinf(xTemp)*180/M_PI, asinf(yTemp)*180/M_PI);
 //x 1020 , -990
 //y  990 , -1030
 //z 1040, -990
@@ -178,7 +230,15 @@ int main(void)
 
 //  printf("GX: %ld\tGY: %ld\tGZ: %ld\n\n\n", gyro.x, gyro.y, gyro.z);
 
+  GUI_DispDecAt(count, 20,20,4);
 
+  GUI_Exec();
+
+  if (++count > 9999) {
+	  count = 0;
+  }
+
+  GUI_TOUCH_Exec();
   HAL_Delay(500);
   }
   /* USER CODE END 3 */
@@ -231,10 +291,11 @@ void SystemClock_Config(void)
   }
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1|RCC_PERIPHCLK_USART3
                               |RCC_PERIPHCLK_I2C2|RCC_PERIPHCLK_DFSDM1
-                              |RCC_PERIPHCLK_USB;
+                              |RCC_PERIPHCLK_USB|RCC_PERIPHCLK_ADC;
   PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK2;
   PeriphClkInit.Usart3ClockSelection = RCC_USART3CLKSOURCE_PCLK1;
   PeriphClkInit.I2c2ClockSelection = RCC_I2C2CLKSOURCE_PCLK1;
+  PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
   PeriphClkInit.Dfsdm1ClockSelection = RCC_DFSDM1CLKSOURCE_PCLK;
   PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLLSAI1;
   PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_MSI;
@@ -243,7 +304,7 @@ void SystemClock_Config(void)
   PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
   PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV2;
   PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
-  PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK;
+  PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK|RCC_PLLSAI1_ADC1CLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -257,6 +318,101 @@ void SystemClock_Config(void)
   /** Enable MSI Auto calibration 
   */
   HAL_RCCEx_EnableMSIPLLMode();
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_MultiModeTypeDef multimode = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+  /** Common config 
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.OversamplingMode = DISABLE;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure the ADC multi-mode 
+  */
+  multimode.Mode = ADC_MODE_INDEPENDENT;
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure Regular Channel 
+  */
+  sConfig.Channel = ADC_CHANNEL_3;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief CRC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CRC_Init(void)
+{
+
+  /* USER CODE BEGIN CRC_Init 0 */
+
+  /* USER CODE END CRC_Init 0 */
+
+  /* USER CODE BEGIN CRC_Init 1 */
+
+  /* USER CODE END CRC_Init 1 */
+  hcrc.Instance = CRC;
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_ENABLE;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+  hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_BYTES;
+  if (HAL_CRC_Init(&hcrc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN CRC_Init 2 */
+
+  /* USER CODE END CRC_Init 2 */
+
 }
 
 /**
@@ -535,14 +691,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(BUTTON_EXTI13_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : ARD_A5_Pin ARD_A4_Pin ARD_A3_Pin ARD_A2_Pin 
-                           ARD_A1_Pin ARD_A0_Pin */
-  GPIO_InitStruct.Pin = ARD_A5_Pin|ARD_A4_Pin|ARD_A3_Pin|ARD_A2_Pin 
-                          |ARD_A1_Pin|ARD_A0_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG_ADC_CONTROL;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
   /*Configure GPIO pins : ARD_D1_Pin ARD_D0_Pin */
   GPIO_InitStruct.Pin = ARD_D1_Pin|ARD_D0_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -566,12 +714,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF1_TIM2;
   HAL_GPIO_Init(ARD_D4_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : ARD_D7_Pin */
-  GPIO_InitStruct.Pin = ARD_D7_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG_ADC_CONTROL;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(ARD_D7_GPIO_Port, &GPIO_InitStruct);
-
   /*Configure GPIO pins : ARD_D13_Pin ARD_D12_Pin ARD_D11_Pin */
   GPIO_InitStruct.Pin = ARD_D13_Pin|ARD_D12_Pin|ARD_D11_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -585,12 +727,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(ARD_D3_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : ARD_D6_Pin */
-  GPIO_InitStruct.Pin = ARD_D6_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG_ADC_CONTROL;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(ARD_D6_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : ARD_D8_Pin ISM43362_BOOT0_Pin ISM43362_WAKEUP_Pin LED2_Pin 
                            SPSGRF_915_SDN_Pin ARD_D5_Pin SPSGRF_915_SPI3_CSN_Pin */
@@ -667,6 +803,42 @@ int __io_putchar(int ch)
 {
 	ITM_SendChar(ch);
 	return 0;
+}
+
+void compass(void)
+{
+	/*
+	 * COMPASS HEADING USING MAGNETOMETERS AN-203 from honeywell
+	 *
+	 * 	Direction (y>0) = 90 - [arcTAN(x/y)]*180/�
+		Direction (y<0) = 270 - [arcTAN(x/y)]*180/�
+		Direction (y=0, x<0) = 180.0
+		Direction (y=0, x>0) = 0.0
+	 */
+
+	double direction = 0.0;
+
+	//direction = (atan((float)mag[0]/mag[1])*(180.0/M_PI));
+
+			if(mag.y>0)
+			{
+			direction = 90.0 - (atan((float)mag.x/mag.y)*(180.0/M_PI));
+			}
+			else if(mag.y<0)
+			{
+			direction = 270.0 - (atan((float)mag.x/mag.y)*(180.0/M_PI));
+			}
+			else if(mag.y==0 && mag.x<0)
+			{
+				direction = 180;
+			}
+			else if(mag.y==0 && mag.x>0)
+			{
+				direction = 0.0;
+			}
+
+			printf("\nheading: %0.1lf\t\t%ld\t\t%ld\n", direction, mag.x, mag.y);
+
 }
 /* USER CODE END 4 */
 
